@@ -159,26 +159,41 @@ const updateUserSubscription = async (req, res) => {
  };
 
  const updateAvatar = async (req, res) => {
-    const { _id } = req.user;
-    const { path: oldPath, originalname } = req.file;
+    try {
+        const { _id } = req.user;
+        const { path: oldPath, originalname } = req.file;
 
-    await Jimp.read(oldPath).then((image) =>
-    image.cover(250, 250).write(oldPath)
-    );
+        // Process the image using Jimp
+        try {
+            const image = await Jimp.read(oldPath);
+            image.cover(250, 250).write(oldPath);
+        } catch (error) {
+            return res.status(500).json({message: 'Failed to process image'});
+        }
 
-    const extension = path.extname(originalname);
+        // Generate unique filename using user ID and file extension
+        const extension = path.extname(originalname);
+        const filename = `${_id}${extension}`;
+        const newPath = path.join('public', 'avatars', filename);
 
-    const filename = `${_id}${extension}`;
-    const newPath = path.join('public', 'avatars', filename);
-    // Copy the file from oldPath to newPath
-    await fs.rename(oldPath, newPath);
-    
-    let avatarURL = path.join('/avatars', filename);
-    // Replace backslashes with forward slashes
-    avatarURL = avatarURL.replace(/\\/g, '/');
+        // Move the file from tmp folder to public/avatars
+        try {
+            await fs.rename(oldPath, newPath);
+        } catch (error) {
+            return res.status(500).json({message: 'Failed to move file'});
+        }
 
-    await User.findeIdAndUpdate(_id, { avatarURL });
-    res.status(200).json({ avatarURL });
+        // Generate avatar URL
+        let avatarURL = path.posix.join('/avatars', filename);
+
+        // Update the user's avatarURL in the database
+        await User.findByIdAndUpdate(_id, { avatarURL });
+
+        // Send a successful response with the new avatar URL
+        res.status(200).json({ avatarURL });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
  };
 
 export { signupUser, loginUser, logoutUser, getCurrentUsers, updateUserSubscription, updateAvatar };
