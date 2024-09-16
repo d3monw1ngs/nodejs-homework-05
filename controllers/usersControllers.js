@@ -1,7 +1,11 @@
 import { User } from '../models/usersModel.js';
 import bcrypt from 'bcryptjs';
+import gravatar from 'gravatar';
 import jwt from 'jsonwebtoken';
 import "dotenv/config";
+import { Jimp } from 'jimp';
+import path from 'path';
+import fs from 'fs/promises';
 import { signupValidation, subscriptionValidation } from '../validations/validation.js';
 
 const { SECRET_KEY } = process.env;
@@ -24,10 +28,14 @@ const signupUser = async (req, res) => {
         // Hash the password
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        // Create a link to the user's avatar with gravatar
+        const avatarURL = gravatar.url(email, { protocol: 'http' });
+
         // Create a new user
         const newUser = await User.create({
             email,
             password: hashedPassword,
+            avatarURL,
         });
 
         // Send a success response
@@ -35,6 +43,7 @@ const signupUser = async (req, res) => {
             user: {
                 email: newUser.email,
                 subscription: newUser.subscription,
+                avatarURL: newUser.avatarURL,
             },
         });
     } catch (error) {
@@ -147,9 +156,47 @@ const updateUserSubscription = async (req, res) => {
         // Pass any server error to the error-handling middleware
         res.status(500).json({ message: error.message });
     }
- }
+ };
 
-export { signupUser, loginUser, logoutUser, updateUserSubscription, getCurrentUsers };
+ const updateAvatar = async (req, res) => {
+    try {
+        const { _id } = req.user;
+        const { path: oldPath, originalname } = req.file;
+
+        // Process the image using Jimp
+        try {
+            const image = await Jimp.read(oldPath);
+            image.cover(250, 250).write(oldPath);
+        } catch (error) {
+            return res.status(500).json({message: 'Failed to process image'});
+        }
+
+        // Generate unique filename using user ID and file extension
+        const extension = path.extname(originalname);
+        const filename = `${_id}${extension}`;
+        const newPath = path.join('public', 'avatars', filename);
+
+        // Move the file from tmp folder to public/avatars
+        try {
+            await fs.rename(oldPath, newPath);
+        } catch (error) {
+            return res.status(500).json({message: 'Failed to move file'});
+        }
+
+        // Generate avatar URL
+        let avatarURL = path.posix.join('/avatars', filename);
+
+        // Update the user's avatarURL in the database
+        await User.findByIdAndUpdate(_id, { avatarURL });
+
+        // Send a successful response with the new avatar URL
+        res.status(200).json({ avatarURL });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+ };
+
+export { signupUser, loginUser, logoutUser, getCurrentUsers, updateUserSubscription, updateAvatar };
 
 
 
